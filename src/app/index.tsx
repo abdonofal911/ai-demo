@@ -19,6 +19,13 @@ export default function Home() {
           <Text style={styles.cardBody}>Whisper</Text>
         </Pressable>
       </Link>
+
+      <Link href="/speak" asChild>
+        <Pressable style={styles.card}>
+          <Text style={styles.cardTitle}>Text to speech</Text>
+          <Text style={styles.cardBody}>Kokoro</Text>
+        </Pressable>
+      </Link>
     </View>
   );
 }

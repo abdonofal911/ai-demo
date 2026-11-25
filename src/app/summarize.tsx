@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { Link, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { MemoryBar } from '@/components/MemoryBar';
@@ -6,6 +7,7 @@ import { ModelDownloadCard } from '@/components/ModelDownloadCard';
 import { useMemoryGuard } from '@/memory/useMemoryGuard';
 import { LLAMA_3_2_1B } from '@/models/registry';
 import { useLlama } from '@/models/useLlama';
+import { useKokoro } from '@/models/useKokoro';
 import { useModelDownload } from '@/models/useModelDownload';
 
 // About 1,200 words — keeps input + summary inside the model's 2048-token window.
@@ -25,9 +27,41 @@ export default function Summarize() {
   const download = useModelDownload(LLAMA_3_2_1B);
   const llama = useLlama(LLAMA_3_2_1B);
   const [input, setInput] = useState('');
-  const memoryGuard = useMemoryGuard(llama.release);
+  const kokoro = useKokoro();
+  // Release both independently: one failing must not keep the other in RAM.
+  const releaseAll = useCallback(
+    async () => {
+      await Promise.allSettled([llama.release(), kokoro.release()]);
+    },
+    [llama.release, kokoro.release],
+  );
+  const memoryGuard = useMemoryGuard(releaseAll);
+
+  // This screen stays mounted under any screen pushed on top of it (e.g. Text to speech),
+  // so free its models when it loses focus, and re-check the voice download when it regains it.
+  useFocusEffect(
+    useCallback(() => {
+      kokoro.refreshDownloadStatus();
+      return () => void releaseAll();
+    }, [kokoro.refreshDownloadStatus, releaseAll]),
+  );
+
+  const summarize = async () => {
+    // Kokoro may still be loaded (30s idle window) after reading aloud; free it first.
+    await kokoro.release();
+    await llama.summarize(input);
+  };
   const busy = llama.status === 'loading' || llama.status === 'generating';
-  const canSummarize = download.status === 'ready' && input.trim().length > 0 && !busy;
+  const speaking = kokoro.status === 'loading' || kokoro.status === 'speaking';
+  const canReadAloud = llama.output.length > 0 && !busy;
+  // Don't load Llama while Kokoro is talking — only one model in RAM at a time.
+  const canSummarize = download.status === 'ready' && input.trim().length > 0 && !busy && !speaking;
+
+  const readAloud = async () => {
+    // Llama and Kokoro together would need ~3 GB; free Llama first so only one model is in RAM.
+    await llama.release();
+    await kokoro.speak(llama.output, 'af_heart');
+  };
 
   return (
     <ScrollView
@@ -68,7 +102,7 @@ export default function Summarize() {
             <Pressable
               style={[styles.button, !canSummarize && styles.disabled]}
               disabled={!canSummarize}
-              onPress={() => llama.summarize(input)}>
+              onPress={summarize}>
               <Text style={styles.buttonText}>Summarize</Text>
             </Pressable>
           )}
@@ -90,6 +124,25 @@ export default function Summarize() {
                 {llama.status === 'generating' ? '▍' : ''}
               </Text>
             </View>
+          )}
+
+          {canReadAloud &&
+            (kokoro.downloadStatus === 'ready' ? (
+              <Pressable
+                style={[styles.button, speaking ? styles.stopButton : styles.secondaryButton]}
+                onPress={speaking ? kokoro.stop : readAloud}>
+                <Text style={styles.buttonText}>
+                  {kokoro.status === 'loading' ? 'Loading voice…' : speaking ? '■ Stop reading' : '🔊 Read summary aloud'}
+                </Text>
+              </Pressable>
+            ) : (
+              <Link href="/speak" style={styles.link}>
+                🔊 Download the voice model on the Text to speech page to read summaries aloud
+              </Link>
+            ))}
+
+          {kokoro.status === 'error' && (
+            <Text style={styles.error}>Couldn't read the summary aloud. Try again.</Text>
           )}
 
           {llama.stats && (
@@ -124,6 +177,7 @@ const styles = StyleSheet.create({
   },
   button: { backgroundColor: '#1D4ED8', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   stopButton: { backgroundColor: '#B91C1C' },
+  secondaryButton: { backgroundColor: '#0F766E' },
   disabled: { opacity: 0.4 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

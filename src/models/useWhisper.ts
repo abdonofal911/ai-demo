@@ -30,22 +30,17 @@ export function useWhisper(model: ModelInfo) {
   const [text, setText] = useState('');
   const [stats, setStats] = useState<TranscriptionStats | null>(null);
   const contextRef = useRef<WhisperContext | null>(null);
+  /** In-flight load, shared so release() can wait for it and free what it loaded. */
+  const loadRef = useRef<Promise<WhisperContext | null> | null>(null);
+  const releaseRef = useRef<() => Promise<void>>(async () => undefined);
   const stopRef = useRef<(() => Promise<void>) | null>(null);
   // Unload the model after it sits unused for a while (see MODEL_IDLE_RELEASE_MS).
   const idleTimer = useIdleTimer(() => void release());
 
-  // Free the model's RAM when the screen closes.
-  useEffect(
-    () => () => {
-      void stopRef.current?.();
-      const context = contextRef.current;
-      contextRef.current = null;
-      void context?.release();
-    },
-    [],
-  );
+  // Free the model's RAM when the screen closes (waits for an in-flight load too).
+  useEffect(() => () => void releaseRef.current(), []);
 
-  const load = useCallback(async () => {
+  const loadModel = useCallback(async () => {
     if (contextRef.current) return contextRef.current;
     setStatus('loading');
     try {
@@ -60,12 +55,20 @@ export function useWhisper(model: ModelInfo) {
     }
   }, [model]);
 
+  const load = useCallback(() => {
+    loadRef.current ??= loadModel().finally(() => {
+      loadRef.current = null;
+    });
+    return loadRef.current;
+  }, [loadModel]);
+
   /** Transcribes a 16-bit WAV file. whisper.rn resamples to 16 kHz mono itself. */
   const transcribe = useCallback(
     async (audioUri: string, language: SpeechLanguage) => {
       idleTimer.cancel();
       const context = contextRef.current ?? (await load());
-      if (!context) return;
+      // Null if loading failed; a different ref means it was released while loading.
+      if (!context || contextRef.current !== context) return;
 
       setText('');
       setStats(null);
@@ -109,6 +112,8 @@ export function useWhisper(model: ModelInfo) {
   /** Stops any transcription and frees the model's RAM. It reloads on the next recording. */
   const release = useCallback(async () => {
     idleTimer.cancel();
+    // If a load is in flight, let it finish so we free what it loaded instead of leaking it.
+    await loadRef.current?.catch(() => null);
     const context = contextRef.current;
     if (!context) return;
     contextRef.current = null;
@@ -117,6 +122,7 @@ export function useWhisper(model: ModelInfo) {
     await context.release();
     setStatus('idle');
   }, [idleTimer]);
+  releaseRef.current = release;
 
   return { status, progress, text, stats, load, transcribe, stop, release };
 }

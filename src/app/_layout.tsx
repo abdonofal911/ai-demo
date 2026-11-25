@@ -8,6 +8,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ title: 'Offline AI' }} />
         <Stack.Screen name="summarize" options={{ title: 'Summarize text' }} />
         <Stack.Screen name="transcribe" options={{ title: 'Speech to text' }} />
+        <Stack.Screen name="speak" options={{ title: 'Text to speech' }} />
       </Stack>
       <StatusBar style="auto" />
     </>
