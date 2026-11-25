@@ -1,48 +1,44 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useLanguage } from '@/i18n/LanguageProvider';
 import { formatBytes, type ModelInfo } from '@/models/registry';
 import type { useModelDownload } from '@/models/useModelDownload';
 
 type Props = { model: ModelInfo; download: ReturnType<typeof useModelDownload> };
 
 export function ModelDownloadCard({ model, download }: Props) {
-  const { t, isRTL } = useLanguage();
-  const textAlign = isRTL ? 'right' : 'left';
-
   const confirmDelete = () =>
-    Alert.alert(t('deleteModelTitle'), t('deleteModelMessage'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('delete'), style: 'destructive', onPress: download.remove },
+    Alert.alert('Delete model?', 'You will need to download it again to use this feature.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: download.remove },
     ]);
 
   const errorText =
     download.error === 'noSpace'
-      ? t('errorNoSpace')
+      ? 'Not enough free storage on this phone.'
       : download.error === 'incomplete'
-        ? t('errorIncomplete')
-        : t('errorFailed');
+        ? 'The download was incomplete. Please try again.'
+        : 'Download failed. Check your connection and try again.';
 
   return (
     <View style={styles.card}>
-      <Text style={[styles.title, { textAlign }]}>{model.name}</Text>
-      <Text style={[styles.meta, { textAlign }]}>
-        {t('modelSize')}: {formatBytes(model.sizeBytes)}
+      <Text style={styles.title}>{model.name}</Text>
+      <Text style={styles.meta}>
+        Size: {formatBytes(model.sizeBytes)}
       </Text>
 
-      {download.status === 'checking' && <Text style={[styles.meta, { textAlign }]}>{t('checking')}</Text>}
+      {download.status === 'checking' && <Text style={styles.meta}>Checking…</Text>}
 
       {download.status === 'ready' && (
         <View style={styles.row}>
-          <Text style={styles.ready}>✓ {t('modelReady')}</Text>
-          <Button label={t('delete')} onPress={confirmDelete} variant="danger" />
+          <Text style={styles.ready}>✓ Downloaded — works offline</Text>
+          <Button label="Delete" onPress={confirmDelete} variant="danger" />
         </View>
       )}
 
       {download.status === 'missing' && (
         <>
-          <Text style={[styles.meta, { textAlign }]}>{t('downloadHint')}</Text>
-          <Button label={t('download')} onPress={download.start} />
+          <Text style={styles.meta}>Download once on Wi-Fi. After that it runs without internet.</Text>
+          <Button label="Download" onPress={download.start} />
         </>
       )}
 
@@ -51,26 +47,26 @@ export function ModelDownloadCard({ model, download }: Props) {
           <View style={styles.track}>
             <View style={[styles.fill, { width: `${download.progress * 100}%` }]} />
           </View>
-          <Text style={[styles.meta, { textAlign }]}>
+          <Text style={styles.meta}>
             {Math.floor(download.progress * 100)}% · {formatBytes(download.bytesWritten)} /{' '}
             {formatBytes(model.sizeBytes)}
-            {download.status === 'paused' ? ` · ${t('paused')}` : ''}
+            {download.status === 'paused' ? ` · $Paused` : ''}
           </Text>
           <View style={styles.row}>
             {download.status === 'downloading' ? (
-              <Button label={t('pause')} onPress={download.pause} variant="secondary" />
+              <Button label="Pause" onPress={download.pause} variant="secondary" />
             ) : (
-              <Button label={t('resume')} onPress={download.resume} />
+              <Button label="Resume" onPress={download.resume} />
             )}
-            <Button label={t('cancel')} onPress={download.cancel} variant="danger" />
+            <Button label="Cancel" onPress={download.cancel} variant="danger" />
           </View>
         </>
       )}
 
       {download.status === 'error' && (
         <>
-          <Text style={[styles.error, { textAlign }]}>{errorText}</Text>
-          <Button label={t('retry')} onPress={download.start} />
+          <Text style={styles.error}>{errorText}</Text>
+          <Button label="Try again" onPress={download.start} />
         </>
       )}
     </View>

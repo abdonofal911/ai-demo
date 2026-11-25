@@ -1,27 +1,22 @@
 import { Link } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useLanguage } from '@/i18n/LanguageProvider';
-
 export default function Home() {
-  const { t, isRTL } = useLanguage();
-  const textAlign = isRTL ? 'right' : 'left';
-
   return (
-    <View style={[styles.container, { direction: isRTL ? 'rtl' : 'ltr' }]}>
-      <Text style={styles.subtitle}>{t('tagline')}</Text>
+    <View style={styles.container}>
+      <Text style={styles.subtitle}>Everything here runs on your device — no internet needed</Text>
 
       <Link href="/summarize" asChild>
         <Pressable style={styles.card}>
-          <Text style={[styles.cardTitle, { textAlign }]}>{t('summarizeTitle')}</Text>
-          <Text style={[styles.cardBody, { textAlign }]}>Llama 3.2 1B</Text>
+          <Text style={styles.cardTitle}>Summarize text</Text>
+          <Text style={styles.cardBody}>Llama 3.2 1B</Text>
         </Pressable>
       </Link>
 
       <Link href="/transcribe" asChild>
         <Pressable style={styles.card}>
-          <Text style={[styles.cardTitle, { textAlign }]}>{t('transcribeTitle')}</Text>
-          <Text style={[styles.cardBody, { textAlign }]}>Whisper</Text>
+          <Text style={styles.cardTitle}>Speech to text</Text>
+          <Text style={styles.cardBody}>Whisper</Text>
         </Pressable>
       </Link>
     </View>

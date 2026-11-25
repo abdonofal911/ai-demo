@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { MemoryBar } from '@/components/MemoryBar';
 import { ModelDownloadCard } from '@/components/ModelDownloadCard';
-import { useLanguage } from '@/i18n/LanguageProvider';
+import { useMemoryGuard } from '@/memory/useMemoryGuard';
 import { LLAMA_3_2_1B } from '@/models/registry';
 import { useLlama } from '@/models/useLlama';
 import { useModelDownload } from '@/models/useModelDownload';
@@ -21,35 +22,39 @@ const SAMPLE_TEXT =
   'when the app goes to the background.';
 
 export default function Summarize() {
-  const { t, isRTL } = useLanguage();
   const download = useModelDownload(LLAMA_3_2_1B);
   const llama = useLlama(LLAMA_3_2_1B);
   const [input, setInput] = useState('');
-
-  const textAlign = isRTL ? 'right' : 'left';
+  const memoryGuard = useMemoryGuard(llama.release);
   const busy = llama.status === 'loading' || llama.status === 'generating';
   const canSummarize = download.status === 'ready' && input.trim().length > 0 && !busy;
 
   return (
     <ScrollView
       style={styles.screen}
-      contentContainerStyle={[styles.content, { direction: isRTL ? 'rtl' : 'ltr' }]}
+      contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled">
+      <MemoryBar />
+      {memoryGuard.releasedForPressure && (
+        <Pressable onPress={memoryGuard.dismiss}>
+          <Text style={styles.warning}>The phone was low on memory, so the model was unloaded to keep the app from crashing. It will reload next time you use it. (Tap to dismiss)</Text>
+        </Pressable>
+      )}
       <ModelDownloadCard model={LLAMA_3_2_1B} download={download} />
 
       {download.status === 'ready' && (
         <>
           <View style={styles.labelRow}>
-            <Text style={styles.label}>{t('inputLabel')}</Text>
+            <Text style={styles.label}>Text to summarize</Text>
             <Pressable onPress={() => setInput(SAMPLE_TEXT)} hitSlop={8}>
-              <Text style={styles.link}>{t('useSample')}</Text>
+              <Text style={styles.link}>Use sample</Text>
             </Pressable>
           </View>
           <TextInput
-            style={[styles.input, { textAlign }]}
+            style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder={t('inputPlaceholder')}
+            placeholder="Paste or type some text…"
             multiline
             maxLength={MAX_INPUT_CHARS}
             editable={!busy}
@@ -57,14 +62,14 @@ export default function Summarize() {
 
           {llama.status === 'generating' ? (
             <Pressable style={[styles.button, styles.stopButton]} onPress={llama.stop}>
-              <Text style={styles.buttonText}>{t('stop')}</Text>
+              <Text style={styles.buttonText}>Stop</Text>
             </Pressable>
           ) : (
             <Pressable
               style={[styles.button, !canSummarize && styles.disabled]}
               disabled={!canSummarize}
               onPress={() => llama.summarize(input)}>
-              <Text style={styles.buttonText}>{t('summarize')}</Text>
+              <Text style={styles.buttonText}>Summarize</Text>
             </Pressable>
           )}
 
@@ -72,15 +77,15 @@ export default function Summarize() {
             <View style={styles.statusRow}>
               <ActivityIndicator />
               <Text style={styles.meta}>
-                {t('loadingModel')} {Math.round(llama.loadProgress)}%
+                Loading model into memory… {Math.round(llama.loadProgress)}%
               </Text>
             </View>
           )}
 
           {(llama.output.length > 0 || llama.status === 'generating') && (
             <View style={styles.outputCard}>
-              <Text style={[styles.label, { textAlign }]}>{t('summaryLabel')}</Text>
-              <Text style={[styles.output, { textAlign }]}>
+              <Text style={styles.label}>Summary</Text>
+              <Text style={styles.output}>
                 {llama.output}
                 {llama.status === 'generating' ? '▍' : ''}
               </Text>
@@ -88,13 +93,13 @@ export default function Summarize() {
           )}
 
           {llama.stats && (
-            <Text style={[styles.meta, { textAlign }]}>
-              ⚡ {llama.stats.tokensPerSecond.toFixed(1)} {t('tokensPerSecond')} · {llama.stats.tokens}{' '}
-              {t('tokens')} · {t('readingTime')} {(llama.stats.promptMs / 1000).toFixed(1)}s
+            <Text style={styles.meta}>
+              ⚡ {llama.stats.tokensPerSecond.toFixed(1)} tokens/sec · {llama.stats.tokens}{' '}
+              tokens · read in {(llama.stats.promptMs / 1000).toFixed(1)}s
             </Text>
           )}
 
-          {llama.status === 'error' && <Text style={styles.error}>{t('errorModel')}</Text>}
+          {llama.status === 'error' && <Text style={styles.error}>Something went wrong running the model. Try again.</Text>}
         </>
       )}
     </ScrollView>
@@ -126,4 +131,5 @@ const styles = StyleSheet.create({
   output: { fontSize: 15, lineHeight: 23 },
   meta: { fontSize: 13, color: '#555' },
   error: { fontSize: 14, color: '#B91C1C' },
+  warning: { fontSize: 14, color: '#92400E', backgroundColor: '#FEF3C7', padding: 12, borderRadius: 10 },
 });

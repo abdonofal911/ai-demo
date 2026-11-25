@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { initWhisper, type WhisperContext } from 'whisper.rn';
 
+import { useIdleTimer } from '@/memory/useIdleTimer';
+
 import type { ModelInfo } from './registry';
 import { getModelFile } from './useModelDownload';
 
@@ -29,6 +31,8 @@ export function useWhisper(model: ModelInfo) {
   const [stats, setStats] = useState<TranscriptionStats | null>(null);
   const contextRef = useRef<WhisperContext | null>(null);
   const stopRef = useRef<(() => Promise<void>) | null>(null);
+  // Unload the model after it sits unused for a while (see MODEL_IDLE_RELEASE_MS).
+  const idleTimer = useIdleTimer(() => void release());
 
   // Free the model's RAM when the screen closes.
   useEffect(
@@ -59,6 +63,7 @@ export function useWhisper(model: ModelInfo) {
   /** Transcribes a 16-bit WAV file. whisper.rn resamples to 16 kHz mono itself. */
   const transcribe = useCallback(
     async (audioUri: string, language: SpeechLanguage) => {
+      idleTimer.cancel();
       const context = contextRef.current ?? (await load());
       if (!context) return;
 
@@ -79,19 +84,39 @@ export function useWhisper(model: ModelInfo) {
         stopRef.current = null;
         setText(result.result.trim());
         setStats({ processingMs: Date.now() - startedAt, detectedLanguage: result.language });
-        setStatus('ready');
+        // If the model was released mid-run (app backgrounded / memory warning), it's no longer loaded.
+        const stillLoaded = contextRef.current === context;
+        setStatus(stillLoaded ? 'ready' : 'idle');
+        if (stillLoaded) idleTimer.restart();
       } catch (e) {
         stopRef.current = null;
+        if (contextRef.current !== context) {
+          setStatus('idle');
+          return;
+        }
         console.warn('Transcription failed', e);
         setStatus('error');
+        idleTimer.restart();
       }
     },
-    [load],
+    [load, idleTimer],
   );
 
   const stop = useCallback(() => {
     void stopRef.current?.();
   }, []);
 
-  return { status, progress, text, stats, load, transcribe, stop };
+  /** Stops any transcription and frees the model's RAM. It reloads on the next recording. */
+  const release = useCallback(async () => {
+    idleTimer.cancel();
+    const context = contextRef.current;
+    if (!context) return;
+    contextRef.current = null;
+    await stopRef.current?.().catch(() => undefined);
+    stopRef.current = null;
+    await context.release();
+    setStatus('idle');
+  }, [idleTimer]);
+
+  return { status, progress, text, stats, load, transcribe, stop, release };
 }

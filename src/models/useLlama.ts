@@ -1,6 +1,8 @@
 import { initLlama, type LlamaContext } from 'llama.rn';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useIdleTimer } from '@/memory/useIdleTimer';
+
 import type { ModelInfo } from './registry';
 import { getModelFile } from './useModelDownload';
 
@@ -30,6 +32,8 @@ export function useLlama(model: ModelInfo) {
   const [stats, setStats] = useState<GenerationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const contextRef = useRef<LlamaContext | null>(null);
+  // Unload the model after it sits unused for a while (see MODEL_IDLE_RELEASE_MS).
+  const idleTimer = useIdleTimer(() => void release());
 
   // Free the model's RAM when the screen closes.
   useEffect(
@@ -73,6 +77,7 @@ export function useLlama(model: ModelInfo) {
 
   const summarize = useCallback(
     async (text: string) => {
+      idleTimer.cancel();
       const context = contextRef.current ?? (await load());
       if (!context) return;
 
@@ -98,19 +103,38 @@ export function useLlama(model: ModelInfo) {
           tokens: result.timings.predicted_n,
           promptMs: result.timings.prompt_ms,
         });
-        setStatus('ready');
+        // If the model was released mid-run (app backgrounded / memory warning), it's no longer loaded.
+        const stillLoaded = contextRef.current === context;
+        setStatus(stillLoaded ? 'ready' : 'idle');
+        if (stillLoaded) idleTimer.restart();
       } catch (e) {
+        if (contextRef.current !== context) {
+          setStatus('idle');
+          return;
+        }
         console.warn('Summarization failed', e);
         setError(String(e));
         setStatus('error');
+        idleTimer.restart();
       }
     },
-    [load],
+    [load, idleTimer],
   );
 
   const stop = useCallback(() => {
     void contextRef.current?.stopCompletion();
   }, []);
 
-  return { status, loadProgress, output, stats, error, load, summarize, stop };
+  /** Stops any generation and frees the model's RAM. It reloads on the next summarize. */
+  const release = useCallback(async () => {
+    idleTimer.cancel();
+    const context = contextRef.current;
+    if (!context) return;
+    contextRef.current = null;
+    await context.stopCompletion().catch(() => undefined);
+    await context.release();
+    setStatus('idle');
+  }, [idleTimer]);
+
+  return { status, loadProgress, output, stats, error, load, summarize, stop, release };
 }

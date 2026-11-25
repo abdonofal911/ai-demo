@@ -1,29 +1,27 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { MemoryBar } from '@/components/MemoryBar';
 import { ModelDownloadCard } from '@/components/ModelDownloadCard';
-import { useLanguage } from '@/i18n/LanguageProvider';
-import type { StringKey } from '@/i18n/strings';
+import { useMemoryGuard } from '@/memory/useMemoryGuard';
 import { WHISPER_SMALL_Q8 } from '@/models/registry';
 import { useModelDownload } from '@/models/useModelDownload';
 import { useRecorder, type Recording } from '@/models/useRecorder';
 import { useWhisper, type SpeechLanguage } from '@/models/useWhisper';
 
-const LANGUAGES: { value: SpeechLanguage; label: StringKey }[] = [
-  { value: 'auto', label: 'langAuto' },
-  { value: 'en', label: 'langEnglish' },
-  { value: 'ar', label: 'langArabic' },
+const LANGUAGES: { value: SpeechLanguage; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'en', label: 'English' },
+  { value: 'ar', label: 'Arabic' },
 ];
 
 export default function Transcribe() {
-  const { t, isRTL } = useLanguage();
   const download = useModelDownload(WHISPER_SMALL_Q8);
   const whisper = useWhisper(WHISPER_SMALL_Q8);
   const recorder = useRecorder();
   const [speechLanguage, setSpeechLanguage] = useState<SpeechLanguage>('auto');
   const [lastRecording, setLastRecording] = useState<Recording | null>(null);
-
-  const textAlign = isRTL ? 'right' : 'left';
+  const memoryGuard = useMemoryGuard(whisper.release);
   const recording = recorder.status === 'recording';
   const busy = whisper.status === 'loading' || whisper.status === 'transcribing';
 
@@ -41,12 +39,18 @@ export default function Transcribe() {
   return (
     <ScrollView
       style={styles.screen}
-      contentContainerStyle={[styles.content, { direction: isRTL ? 'rtl' : 'ltr' }]}>
+      contentContainerStyle={styles.content}>
+      <MemoryBar />
+      {memoryGuard.releasedForPressure && (
+        <Pressable onPress={memoryGuard.dismiss}>
+          <Text style={styles.warning}>The phone was low on memory, so the model was unloaded to keep the app from crashing. It will reload next time you use it. (Tap to dismiss)</Text>
+        </Pressable>
+      )}
       <ModelDownloadCard model={WHISPER_SMALL_Q8} download={download} />
 
       {download.status === 'ready' && (
         <>
-          <Text style={[styles.label, { textAlign }]}>{t('spokenLanguage')}</Text>
+          <Text style={styles.label}>Spoken language</Text>
           <View style={styles.segment}>
             {LANGUAGES.map(({ value, label }) => (
               <Pressable
@@ -55,7 +59,7 @@ export default function Transcribe() {
                 onPress={() => setSpeechLanguage(value)}
                 style={[styles.segmentItem, speechLanguage === value && styles.segmentActive]}>
                 <Text style={[styles.segmentText, speechLanguage === value && styles.segmentTextActive]}>
-                  {t(label)}
+                  {label}
                 </Text>
               </Pressable>
             ))}
@@ -66,17 +70,17 @@ export default function Transcribe() {
             onPress={onRecordPress}
             style={[styles.recordButton, recording && styles.recordingButton, busy && styles.disabled]}>
             <Text style={styles.recordText}>
-              {recording ? `■ ${t('stopRecording')} · ${recorder.elapsedSec.toFixed(1)}s` : `● ${t('startRecording')}`}
+              {recording ? `■ $Stop · ${recorder.elapsedSec.toFixed(1)}s` : `● $Record`}
             </Text>
           </Pressable>
 
-          {recorder.status === 'denied' && <Text style={styles.error}>{t('micDenied')}</Text>}
-          {recorder.status === 'error' && <Text style={styles.error}>{t('micError')}</Text>}
+          {recorder.status === 'denied' && <Text style={styles.error}>Microphone permission is needed. Enable it in Settings.</Text>}
+          {recorder.status === 'error' && <Text style={styles.error}>Could not use the microphone. Try again.</Text>}
 
           {whisper.status === 'loading' && (
             <View style={styles.statusRow}>
               <ActivityIndicator />
-              <Text style={styles.meta}>{t('loadingModel')}</Text>
+              <Text style={styles.meta}>Loading model into memory…</Text>
             </View>
           )}
 
@@ -84,30 +88,30 @@ export default function Transcribe() {
             <View style={styles.statusRow}>
               <ActivityIndicator />
               <Text style={styles.meta}>
-                {t('transcribing')} {Math.round(whisper.progress)}%
+                Transcribing… {Math.round(whisper.progress)}%
               </Text>
               <Pressable onPress={whisper.stop} hitSlop={8}>
-                <Text style={styles.link}>{t('stop')}</Text>
+                <Text style={styles.link}>Stop</Text>
               </Pressable>
             </View>
           )}
 
           {whisper.text.length > 0 && (
             <View style={styles.outputCard}>
-              <Text style={[styles.label, { textAlign }]}>{t('transcriptLabel')}</Text>
+              <Text style={styles.label}>Transcript</Text>
               {/* Align by the transcript's own script, not the UI language. */}
               <Text style={[styles.output, { writingDirection: 'auto' }]}>{whisper.text}</Text>
             </View>
           )}
 
           {whisper.stats && lastRecording && (
-            <Text style={[styles.meta, { textAlign }]}>
-              ⚡ {lastRecording.durationSec.toFixed(1)}s {t('audioIn')} {(whisper.stats.processingMs / 1000).toFixed(1)}s ·{' '}
-              {t('detected')}: {whisper.stats.detectedLanguage} · {lastRecording.sampleRate} Hz
+            <Text style={styles.meta}>
+              ⚡ {lastRecording.durationSec.toFixed(1)}s of audio in {(whisper.stats.processingMs / 1000).toFixed(1)}s ·{' '}
+              language: {whisper.stats.detectedLanguage} · {lastRecording.sampleRate} Hz
             </Text>
           )}
 
-          {whisper.status === 'error' && <Text style={styles.error}>{t('errorModel')}</Text>}
+          {whisper.status === 'error' && <Text style={styles.error}>Something went wrong running the model. Try again.</Text>}
         </>
       )}
     </ScrollView>
@@ -133,4 +137,5 @@ const styles = StyleSheet.create({
   output: { fontSize: 16, lineHeight: 24 },
   meta: { fontSize: 13, color: '#555' },
   error: { fontSize: 14, color: '#B91C1C' },
+  warning: { fontSize: 14, color: '#92400E', backgroundColor: '#FEF3C7', padding: 12, borderRadius: 10 },
 });

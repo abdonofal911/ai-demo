@@ -25,7 +25,12 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      "llama.rn",
+      [
+        "llama.rn",
+        {
+          "enableOpenCLAndHexagon": false
+        }
+      ],
       "expo-audio"
     ],
     "scheme": "offlineaidemo",
