@@ -35,7 +35,7 @@ export function useWhisper(model: ModelInfo) {
   const releaseRef = useRef<() => Promise<void>>(async () => undefined);
   const stopRef = useRef<(() => Promise<void>) | null>(null);
   // Unload the model after it sits unused for a while (see MODEL_IDLE_RELEASE_MS).
-  const idleTimer = useIdleTimer(() => void release());
+  const idleTimer = useIdleTimer(() => void releaseRef.current());
 
   // Free the model's RAM when the screen closes (waits for an in-flight load too).
   useEffect(() => () => void releaseRef.current(), []);
@@ -62,13 +62,13 @@ export function useWhisper(model: ModelInfo) {
     return loadRef.current;
   }, [loadModel]);
 
-  /** Transcribes a 16-bit WAV file. whisper.rn resamples to 16 kHz mono itself. */
+  /** Transcribes a 16-bit WAV file (whisper.rn resamples to 16 kHz mono itself). Returns the text, or null. */
   const transcribe = useCallback(
     async (audioUri: string, language: SpeechLanguage) => {
       idleTimer.cancel();
       const context = contextRef.current ?? (await load());
       // Null if loading failed; a different ref means it was released while loading.
-      if (!context || contextRef.current !== context) return;
+      if (!context || contextRef.current !== context) return null;
 
       setText('');
       setStats(null);
@@ -85,21 +85,24 @@ export function useWhisper(model: ModelInfo) {
         stopRef.current = stop;
         const result = await promise;
         stopRef.current = null;
-        setText(result.result.trim());
+        const transcript = result.result.trim();
+        setText(transcript);
         setStats({ processingMs: Date.now() - startedAt, detectedLanguage: result.language });
         // If the model was released mid-run (app backgrounded / memory warning), it's no longer loaded.
         const stillLoaded = contextRef.current === context;
         setStatus(stillLoaded ? 'ready' : 'idle');
         if (stillLoaded) idleTimer.restart();
+        return transcript;
       } catch (e) {
         stopRef.current = null;
         if (contextRef.current !== context) {
           setStatus('idle');
-          return;
+          return null;
         }
         console.warn('Transcription failed', e);
         setStatus('error');
         idleTimer.restart();
+        return null;
       }
     },
     [load, idleTimer],
@@ -117,12 +120,19 @@ export function useWhisper(model: ModelInfo) {
     const context = contextRef.current;
     if (!context) return;
     contextRef.current = null;
-    await stopRef.current?.().catch(() => undefined);
+    // Don't chain .catch on a native call's return value (see useLlama.release).
+    try {
+      await stopRef.current?.();
+    } catch {
+      // Nothing to stop.
+    }
     stopRef.current = null;
     await context.release();
     setStatus('idle');
   }, [idleTimer]);
-  releaseRef.current = release;
+  useEffect(() => {
+    releaseRef.current = release;
+  }, [release]);
 
   return { status, progress, text, stats, load, transcribe, stop, release };
 }

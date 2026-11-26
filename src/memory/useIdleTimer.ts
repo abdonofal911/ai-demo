@@ -11,7 +11,9 @@ export const MODEL_IDLE_RELEASE_MS = 30_000;
 export function useIdleTimer(onIdle: () => void, ms = MODEL_IDLE_RELEASE_MS) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onIdleRef = useRef(onIdle);
-  onIdleRef.current = onIdle;
+  useEffect(() => {
+    onIdleRef.current = onIdle;
+  });
 
   const cancel = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);

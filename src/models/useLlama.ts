@@ -20,10 +20,22 @@ export type GenerationStats = {
 const CONTEXT_SIZE = 2048;
 const MAX_SUMMARY_TOKENS = 300;
 
-const SYSTEM_PROMPT =
+const SUMMARY_PROMPT =
   'You are a helpful assistant that summarizes text. ' +
   'Write a short, clear summary in 3 to 5 bullet points. ' +
   'Always answer in the same language as the text you are given.';
+
+// Answers are read aloud by the voice model, so ask for short, plain spoken sentences.
+const ASSISTANT_PROMPT =
+  "You are a friendly voice assistant running fully offline on the user's phone. " +
+  'Reply in plain spoken English in 1 to 3 short sentences. ' +
+  'Do not use lists, markdown, emojis or special symbols.';
+const MAX_REPLY_TOKENS = 160;
+// Keep only the most recent turns so the conversation fits in the context window.
+const MAX_HISTORY_MESSAGES = 8;
+
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+type PromptMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
 export function useLlama(model: ModelInfo) {
   const [status, setStatus] = useState<LlamaStatus>('idle');
@@ -36,7 +48,7 @@ export function useLlama(model: ModelInfo) {
   const loadRef = useRef<Promise<LlamaContext | null> | null>(null);
   const releaseRef = useRef<() => Promise<void>>(async () => undefined);
   // Unload the model after it sits unused for a while (see MODEL_IDLE_RELEASE_MS).
-  const idleTimer = useIdleTimer(() => void release());
+  const idleTimer = useIdleTimer(() => void releaseRef.current());
 
   // Free the model's RAM when the screen closes (waits for an in-flight load too).
   useEffect(() => () => void releaseRef.current(), []);
@@ -78,30 +90,25 @@ export function useLlama(model: ModelInfo) {
     return loadRef.current;
   }, [loadModel]);
 
-  const summarize = useCallback(
-    async (text: string) => {
+  /** Runs one completion, streaming tokens into `output`. Returns the final text, or null. */
+  const generate = useCallback(
+    async (messages: PromptMessage[], maxTokens: number, temperature: number) => {
       idleTimer.cancel();
       const context = contextRef.current ?? (await load());
       // Null if loading failed; a different ref means it was released while loading.
-      if (!context || contextRef.current !== context) return;
+      if (!context || contextRef.current !== context) return null;
 
       setOutput('');
       setStats(null);
       setStatus('generating');
       try {
         const result = await context.completion(
-          {
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: `Summarize this text:\n\n${text}` },
-            ],
-            n_predict: MAX_SUMMARY_TOKENS,
-            temperature: 0.3,
-          },
-          // Called for every new token, so the summary appears word by word.
+          { messages, n_predict: maxTokens, temperature },
+          // Called for every new token, so the text appears word by word.
           (data) => setOutput((previous) => previous + data.token),
         );
-        setOutput(result.text.trim());
+        const text = result.text.trim();
+        setOutput(text);
         setStats({
           tokensPerSecond: result.timings.predicted_per_second,
           tokens: result.timings.predicted_n,
@@ -111,18 +118,44 @@ export function useLlama(model: ModelInfo) {
         const stillLoaded = contextRef.current === context;
         setStatus(stillLoaded ? 'ready' : 'idle');
         if (stillLoaded) idleTimer.restart();
+        return text;
       } catch (e) {
         if (contextRef.current !== context) {
           setStatus('idle');
-          return;
+          return null;
         }
-        console.warn('Summarization failed', e);
+        console.warn('Generation failed', e);
         setError(String(e));
         setStatus('error');
         idleTimer.restart();
+        return null;
       }
     },
     [load, idleTimer],
+  );
+
+  const summarize = useCallback(
+    (text: string) =>
+      generate(
+        [
+          { role: 'system', content: SUMMARY_PROMPT },
+          { role: 'user', content: `Summarize this text:\n\n${text}` },
+        ],
+        MAX_SUMMARY_TOKENS,
+        0.3,
+      ),
+    [generate],
+  );
+
+  /** Replies to a conversation as a short spoken-style answer. */
+  const chat = useCallback(
+    (history: ChatMessage[]) =>
+      generate(
+        [{ role: 'system', content: ASSISTANT_PROMPT }, ...history.slice(-MAX_HISTORY_MESSAGES)],
+        MAX_REPLY_TOKENS,
+        0.7,
+      ),
+    [generate],
   );
 
   const stop = useCallback(() => {
@@ -137,11 +170,20 @@ export function useLlama(model: ModelInfo) {
     const context = contextRef.current;
     if (!context) return;
     contextRef.current = null;
-    await context.stopCompletion().catch(() => undefined);
+    // llama.rn types stopCompletion() as a Promise, but the native function returns
+    // undefined — calling `.catch` on it threw, so release() never reached
+    // context.release() and every unload leaked the whole model. Never chain on it.
+    try {
+      await context.stopCompletion();
+    } catch {
+      // Nothing to stop, or the context is already gone.
+    }
     await context.release();
     setStatus('idle');
   }, [idleTimer]);
-  releaseRef.current = release;
+  useEffect(() => {
+    releaseRef.current = release;
+  }, [release]);
 
-  return { status, loadProgress, output, stats, error, load, summarize, stop, release };
+  return { status, loadProgress, output, stats, error, load, summarize, chat, stop, release };
 }

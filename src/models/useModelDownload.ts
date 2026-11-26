@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ModelInfo } from './registry';
 
-export type DownloadStatus = 'checking' | 'missing' | 'downloading' | 'paused' | 'ready' | 'error';
+export type DownloadStatus = 'missing' | 'downloading' | 'paused' | 'ready' | 'error';
 
 export type DownloadError = 'noSpace' | 'failed' | 'incomplete';
 
@@ -19,13 +19,18 @@ function isComplete(model: ModelInfo) {
 }
 
 export function useModelDownload(model: ModelInfo) {
-  const [status, setStatus] = useState<DownloadStatus>('checking');
+  const [status, setStatus] = useState<DownloadStatus>(() =>
+    isComplete(model) ? 'ready' : 'missing',
+  );
   const [bytesWritten, setBytesWritten] = useState(0);
   const [error, setError] = useState<DownloadError | null>(null);
   const taskRef = useRef<DownloadTask | null>(null);
 
-  useEffect(() => {
-    setStatus(isComplete(model) ? 'ready' : 'missing');
+  /** Re-checks the file on disk (e.g. after the model was downloaded on another screen). */
+  const refresh = useCallback(() => {
+    setStatus((current) =>
+      current === 'downloading' || current === 'paused' ? current : isComplete(model) ? 'ready' : 'missing',
+    );
   }, [model]);
 
   // Stop an in-flight download if the user leaves the screen.
@@ -112,6 +117,7 @@ export function useModelDownload(model: ModelInfo) {
     error,
     bytesWritten,
     progress: Math.min(bytesWritten / model.sizeBytes, 1),
+    refresh,
     start,
     pause,
     resume,

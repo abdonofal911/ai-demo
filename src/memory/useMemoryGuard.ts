@@ -12,7 +12,9 @@ import MemoryInfo from '../../modules/memory-info';
 export function useMemoryGuard(release: () => void | Promise<void>) {
   const [releasedForPressure, setReleasedForPressure] = useState(false);
   const releaseRef = useRef(release);
-  releaseRef.current = release;
+  useEffect(() => {
+    releaseRef.current = release;
+  });
 
   useEffect(() => {
     const appState = AppState.addEventListener('change', (state) => {

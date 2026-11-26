@@ -26,7 +26,6 @@ export function ModelDownloadCard({ model, download }: Props) {
         Size: {formatBytes(model.sizeBytes)}
       </Text>
 
-      {download.status === 'checking' && <Text style={styles.meta}>Checking…</Text>}
 
       {download.status === 'ready' && (
         <View style={styles.row}>

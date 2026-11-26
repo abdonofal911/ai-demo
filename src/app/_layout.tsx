@@ -9,6 +9,7 @@ export default function RootLayout() {
         <Stack.Screen name="summarize" options={{ title: 'Summarize text' }} />
         <Stack.Screen name="transcribe" options={{ title: 'Speech to text' }} />
         <Stack.Screen name="speak" options={{ title: 'Text to speech' }} />
+        <Stack.Screen name="assistant" options={{ title: 'Voice assistant' }} />
       </Stack>
       <StatusBar style="auto" />
     </>

@@ -14,7 +14,6 @@ export function VoiceModelCard({ kokoro }: Props) {
       <Text style={styles.title}>Kokoro TTS (English)</Text>
       <Text style={styles.meta}>Size: ~{formatBytes(KOKORO_DOWNLOAD_BYTES)} · 6 voices</Text>
 
-      {downloadStatus === 'checking' && <Text style={styles.meta}>Checking…</Text>}
 
       {downloadStatus === 'ready' && <Text style={styles.ready}>✓ Downloaded — works offline</Text>}
 

@@ -29,21 +29,20 @@ export default function Summarize() {
   const [input, setInput] = useState('');
   const kokoro = useKokoro();
   // Release both independently: one failing must not keep the other in RAM.
-  const releaseAll = useCallback(
-    async () => {
-      await Promise.allSettled([llama.release(), kokoro.release()]);
-    },
-    [llama.release, kokoro.release],
-  );
+  const { release: releaseLlama } = llama;
+  const { release: releaseKokoro, refreshDownloadStatus } = kokoro;
+  const releaseAll = useCallback(async () => {
+    await Promise.allSettled([releaseLlama(), releaseKokoro()]);
+  }, [releaseLlama, releaseKokoro]);
   const memoryGuard = useMemoryGuard(releaseAll);
 
   // This screen stays mounted under any screen pushed on top of it (e.g. Text to speech),
   // so free its models when it loses focus, and re-check the voice download when it regains it.
   useFocusEffect(
     useCallback(() => {
-      kokoro.refreshDownloadStatus();
+      refreshDownloadStatus();
       return () => void releaseAll();
-    }, [kokoro.refreshDownloadStatus, releaseAll]),
+    }, [refreshDownloadStatus, releaseAll]),
   );
 
   const summarize = async () => {
@@ -142,7 +141,7 @@ export default function Summarize() {
             ))}
 
           {kokoro.status === 'error' && (
-            <Text style={styles.error}>Couldn't read the summary aloud. Try again.</Text>
+            <Text style={styles.error}>{"Couldn't read the summary aloud. Try again."}</Text>
           )}
 
           {llama.stats && (

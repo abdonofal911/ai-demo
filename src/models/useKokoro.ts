@@ -31,7 +31,7 @@ export const KOKORO_VOICES: { id: KokoroVoice; label: string }[] = [
 ];
 
 type ResolvedModel = typeof KOKORO_EN;
-type DownloadStatus = 'checking' | 'missing' | 'downloading' | 'ready' | 'error';
+type DownloadStatus = 'missing' | 'downloading' | 'ready' | 'error';
 export type KokoroStatus = 'idle' | 'loading' | 'speaking' | 'error';
 
 export type SpeechStats = {
@@ -50,7 +50,9 @@ const readyMarker = () => new File(Paths.document, 'kokoro-ready.json');
 const chunksDir = () => new Directory(Paths.cache, 'tts');
 
 export function useKokoro() {
-  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>('checking');
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>(() =>
+    readyMarker().exists ? 'ready' : 'missing',
+  );
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [status, setStatus] = useState<KokoroStatus>('idle');
   const [stats, setStats] = useState<SpeechStats | null>(null);
@@ -75,15 +77,14 @@ export function useKokoro() {
   const playingRef = useRef(false);
   const synthDoneRef = useRef(true);
 
-  const idleTimer = useIdleTimer(() => void release());
+  const releaseRef = useRef<() => Promise<void>>(async () => undefined);
+  const idleTimer = useIdleTimer(() => void releaseRef.current());
 
   const refreshDownloadStatus = useCallback(() => {
     setDownloadStatus((current) =>
       current === 'downloading' ? current : readyMarker().exists ? 'ready' : 'missing',
     );
   }, []);
-
-  useEffect(refreshDownloadStatus, [refreshDownloadStatus]);
 
   const finishIfDone = useCallback(() => {
     if (synthDoneRef.current && !playingRef.current && queueRef.current.length === 0) {
@@ -245,8 +246,9 @@ export function useKokoro() {
   );
 
   // Free the model when the screen closes (release waits for any in-flight work first).
-  const releaseRef = useRef(release);
-  releaseRef.current = release;
+  useEffect(() => {
+    releaseRef.current = release;
+  }, [release]);
   useEffect(
     () => () => {
       abortRef.current?.abort();
